@@ -1,0 +1,41 @@
+et’s set things up
+1. Install the SDK
+Get started by installing the Mem0 Node package using npm
+
+bash
+
+npm install mem0ai
+2. Initialize the client
+Initialize the Mem0 client with your API key to start making requests
+
+javascript
+
+import MemoryClient from 'mem0ai';
+const apiKey = 'your-api-key-here';
+const client = new MemoryClient({
+    apiKey: apiKey,
+    organizationId: 'your-organization-id-here',  // Optional
+    projectId: 'your-project-id-here' // Optional
+});
+3. Add memory
+Store conversation history and important information for your users
+
+javascript
+
+const messages = [
+    { role: "user", content: "Hi, I'm Alex. I'm a vegetarian and I'm allergic to nuts." },
+    { role: "assistant", content: "Hello Alex! I've noted that you're a vegetarian and have a nut allergy. I'll keep this in mind for any food-related recommendations or discussions." }
+];
+client.add(messages, { user_id: "alex" })
+.then(result => console.log(result))
+.catch(error => console.error(error));
+4. Retrieve memory
+Retrieve the complete memory history for a specific user
+
+javascript
+
+const query = "What do you know about me?";
+const options = { user_id: "alex" };
+client.search(query, options)
+.then(results => console.log(results))
+.catch(error => console.error(error));

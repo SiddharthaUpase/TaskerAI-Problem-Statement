@@ -1,0 +1,26 @@
+{
+  "name": "problem-statement",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "ts-node index.ts",
+    "dev": "nodemon --exec ts-node index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@langchain/community": "^0.0.36",
+    "@langchain/core": "^0.2.36",
+    "@langchain/langgraph": "^0.2.34",
+    "chromadb": "^1.9.4",
+    "dotenv": "^16.4.7",
+    "langchain": "^0.1.28",
+    "mem0ai": "^1.0.29",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "nodemon": "^3.0.0"
+  }
+}
