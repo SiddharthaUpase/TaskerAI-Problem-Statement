@@ -35,7 +35,6 @@ export class MemoryService {
       const results = await memory.search(query, { user_id: userId.toString() });
       return results.map(result => result.memory || "").filter(Boolean) as string[];
     } catch (error) {
-      console.error("Error searching memory:", error);
       return [];
     }
   }
@@ -58,7 +57,7 @@ export class MemoryService {
       
       const results = await memory.search("", { 
         user_id: userId.toString(),
-        limit: limit * 2 // Multiply by 2 since each exchange has 2 messages
+        limit: limit * 2
       });
 
       return results

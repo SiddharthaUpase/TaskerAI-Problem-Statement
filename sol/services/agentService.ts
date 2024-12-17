@@ -94,10 +94,9 @@ export class LangGraphAgentService {
 
   // Generate final response node
   private generateFinalResponse = async (state: AgentWorkflowState) => {
-    // Get recent conversation from memory
     const recentMessages = await this.memoryService.getRecentConversation(
       state.userId, 
-      5  // Get last 5 messages
+      5
     );
 
     const responseChain = PromptTemplate.fromTemplate(
