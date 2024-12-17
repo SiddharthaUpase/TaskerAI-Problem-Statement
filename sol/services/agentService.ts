@@ -3,11 +3,14 @@ import { RunnableSequence } from "@langchain/core/runnables";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { ChromaService } from "./chromaService";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { MemoryService } from "./memoryService";
+import { IMessage } from "./types";
 
 export class AgentService {
   private static instance: AgentService;
   private model: ChatOpenAI;
   private chromaService: ChromaService;
+  private memoryService: MemoryService;
 
   private constructor() {
     console.log("\n🔧 Initializing AgentService...");
@@ -17,6 +20,7 @@ export class AgentService {
         temperature: 0.7,
       });
       this.chromaService = ChromaService.getInstance();
+      this.memoryService = MemoryService.getInstance();
       console.log("✅ AgentService initialized successfully");
     } catch (error) {
       console.error("❌ Failed to initialize AgentService:", error);
@@ -72,11 +76,19 @@ export class AgentService {
     console.log("👤 User ID:", userId);
 
     try {
+      // Ensure user is initialized in MemoryService
+      await this.memoryService.initializeUser(Number(userId));
+
       // 1. Evaluate if input should be stored
       const shouldStore = await this.shouldStoreInput(userInput);
       if (shouldStore) {
-        console.log("\n💾 Storing valuable information in database...");
+        console.log("\n💾 Storing valuable information in databases...");
         await this.chromaService.storeUserInput(userId, userInput);
+        // Store in Mem0 as a message
+        await this.memoryService.storeConversation(Number(userId), [{
+          role: 'user',
+          content: userInput
+        }]);
       }
 
       // 2. Determine if we need to search for facts
@@ -117,6 +129,11 @@ export class AgentService {
         // 4. Search ChromaDB for relevant facts
         console.log("\n📚 Step 3: Searching for relevant facts...");
         relevantFacts = await this.chromaService.findSimilarInputs(userId, searchQuery);
+        console.log("ChromaDB Facts:", relevantFacts.length > 0 ? relevantFacts : "No facts found");
+        //search mem0
+        const mem0Facts = await this.memoryService.searchMemory(Number(userId), searchQuery);
+        console.log("Mem0 Facts:", mem0Facts.length > 0 ? mem0Facts : "No facts found");
+        relevantFacts = [...relevantFacts, ...mem0Facts];
         console.log("📑 Found Facts:", relevantFacts.length > 0 ? relevantFacts : "No facts found");
       }
 
