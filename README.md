@@ -1,57 +1,105 @@
-# Problem Statement: Knowledge Memory
+# AI Memory Assistant
 
-We are interested in building an AI agent that can engage in a conversation with a user, remember important facts from previous interactions, and autonomously retrieve factual information it has seen before. The objective is to leverage **Chroma DB** for vector-based memory storage and **Mem0** for graph-based memory representation, ensuring the agent maintains an evolving context over multiple turns. You will use **Typescript**, **Langchain**, and **Langgraph** to construct this solution.
+Welcome to the AI Memory Assistant, an intelligent conversational AI system designed to maintain context and remember past interactions using a dual memory system. This project is built with TypeScript, LangChain, and LangGraph.
 
-## Key References
-- [ChromaDB](https://github.com/chroma-core/chroma)
-- [Mem0.ai](https://mem0.ai)
-- [LangGraphJS](https://langgraphjs.com/)
-- [LangchainJS](https://js.langchain.com/)
+## Key Features
 
-## Technology Stack
-- **Typescript**: Main programming language for the implementation (refer to the provided template).
-- **Chroma DB**: For vector-based fact embedding and retrieval (deploy local docker container).
-- **Memzero**: For managing a graph-based memory structure that can store and relate facts.
-- **Langchain**: For connecting LLM capabilities to our data sources and building the agent’s reasoning pipeline.
-- **Langgraph**: For defining a simple graph-based flow that includes a single agent node.
+- **Context Maintenance**: Retains conversation context across multiple interactions.
+- **Intelligent Memory Management**: Efficient storage and retrieval of memories.
+- **Semantic Search**: Capable of searching for semantically similar past interactions.
+- **Contextually Aware Responses**: Generates responses that consider previous conversations.
+- **Selective Memory Storage**: Decides what information is worth storing for future interactions.
 
-## Core Requirements
+## Architecture Overview
 
-### Embedding Strategy (C)
-- Implement a text embedding pipeline for converting pieces of factual data into vector form.
-- Store these vector embeddings in Chroma DB, associating each embedding with relevant metadata (e.g., source, context, or timestamp).
+### Core Components
+1. **Dual Memory System**
+   - **ChromaDB**: A vector database used for semantic search.
+   - **Mem0**: Manages conversation history and relationship storage.
 
-### Memory Integration with Memzero
-- Integrate Memzero to create and manage a knowledge graph that maintains relationships between facts.
-- As the agent interacts with the user, new facts should be inserted into both the vector database (Chroma DB) and the graph memory (Memzero), allowing for both semantic and relational retrieval of information.
+2. **LangGraph Workflow**
+   - Context analysis
+   - Memory retrieval
+   - Response generation
+   - Selective storage of information
 
-### Self-Querying Capability
-- Implement a single Langgraph agent node (graph structure: `Start → Agent → End`) that can handle user queries.
-- The agent should be able to:
-  - Take a user query and determine if additional facts are needed.
-  - Automatically craft a query to search Chroma DB for relevant facts.
-  - Retrieve the top-k most relevant documents/facts from the vector database.
-  - Use Memzero’s memory graph to relate newly found facts to previously known facts, enriching the conversation context and enabling more coherent answers.
+### Tech Stack
+- TypeScript
+- LangChain
+- LangGraph
+- OpenAI GPT-3.5
+- ChromaDB
+- Mem0.ai
 
-### Conversational Flow and Fact Memorization
-- The agent should maintain context across multiple user turns, effectively “remembering” previously mentioned facts.
-- Demonstrate that the agent, over the course of a conversation, can recall, refine, and relate facts learned in earlier turns without losing track of context.
+## Setup Instructions
 
-## Evaluation & Documentation
-- Provide a short demonstration scenario (e.g., a conversational script) showing how the agent learns and then recalls facts introduced during earlier turns of the conversation.
-- Evaluate the agent’s performance qualitatively (e.g., does it correctly remember and use previously mentioned facts?).
-- Document your approach, including through code comments.
+To get started with the AI Memory Assistant, follow these steps:
 
-## Deliverables
-- **Code Repository** (e.g., GitHub):
-  - Typescript code implementing the agent with Langchain and Langgraph.
-  - Integration scripts for embedding generation and Chroma DB indexing.
-  - Code demonstrating Memzero-based graph memory construction and querying.
-  - A clear README detailing how to set up, run, and test the system.
+1. **Clone the Repository**
+   ```bash
+   git clone <repository-url>
+   cd <repository-directory>
+   ```
 
-## Assessment Criteria
-- **Technical Correctness**: Proper use of Typescript, Langchain, Langgraph, Chroma DB, and Memzero.
-- **Functionality**: The agent can engage in conversation, remember facts, and retrieve them when asked.
-- **Code Quality**: Clean, maintainable, and well-documented code.
-- **Rationale & Scalability**: Thoughtful explanation of design choices, embedding strategies, and awareness of how the system might scale.
+2. **Environment Setup**
+   Create a `.env` file in the root directory with the following content:
+   ```plaintext
+   OPENAI_API_KEY=your_openai_api_key
+   MEM0_API_KEY=your_mem0_api_key
+   ```
+
+3. **Install Dependencies**
+   Run the following command to install the necessary dependencies:
+   ```bash
+   npm install
+   ```
+
+4. **Setup ChromaDB**
+  Make sure you have docker installed and running.
+   Start ChromaDB by executing these commands:
+   ```bash
+   docker pull chromadb/chroma
+   docker run -p 8000:8000 chromadb/chroma
+   ```
+
+5. **Run the Application**
+   Finally, start the application with:
+   ```bash
+   npm start
+   ```
+
+## How It Works
+
+1. **Input Processing**
+   - The system analyzes user input to determine context requirements.
+   - It decides whether to retrieve past memories based on the input.
+
+2. **Memory Retrieval**
+   - Searches ChromaDB for semantically similar past interactions.
+   - Retrieves recent conversation context from Mem0.
+
+3. **Response Generation**
+   - Combines the current input with retrieved context to generate responses.
+
+4. **Memory Storage**
+   - Intelligently determines which information to store for future reference.
+   - Maintains both semantic and conversational memory.
+
+## Prerequisites
+
+Before running the application, ensure you have the following installed:
+
+- Node.js (version 14 or higher)
+- Docker (for running ChromaDB)
+- OpenAI API key
+- Mem0 API key
+
+## Error Handling
+
+If you encounter issues, here are some common problems and their solutions:
+- **ChromaDB Connection Issues**: Ensure the Docker container is running.
+- **Memory Retrieval Failures**: Check your Mem0 API key and network connectivity.
+- **OpenAI Errors**: Verify your API key and check for rate limits.
+
+For further assistance, consult the documentation or reach out to me at supase@hawk.iit.edu
 
