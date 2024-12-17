@@ -1,174 +1,228 @@
+import { 
+  StateGraph, 
+  START, 
+  END 
+} from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
-import { RunnableSequence } from "@langchain/core/runnables";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { ChromaService } from "./chromaService";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { RunnableLambda } from "@langchain/core/runnables";
+import { ChromaService } from "./chromaService";
 import { MemoryService } from "./memoryService";
-import { IMessage } from "./types";
 
-export class AgentService {
-  private static instance: AgentService;
+// Define the agent's state
+interface AgentWorkflowState {
+  input: string;
+  userId: number;
+  output?: string;
+  memories?: string[];
+  searchQuery?: string;
+  recentConversation?: { role: string; content: string; }[];
+}
+
+export class LangGraphAgentService {
   private model: ChatOpenAI;
   private chromaService: ChromaService;
   private memoryService: MemoryService;
 
-  private constructor() {
-    console.log("\n🔧 Initializing AgentService...");
-    try {
-      this.model = new ChatOpenAI({
-        modelName: "gpt-3.5-turbo",
-        temperature: 0.7,
+  constructor() {
+    this.model = new ChatOpenAI({
+      modelName: "gpt-3.5-turbo",
+      temperature: 0.7,
+    });
+    this.chromaService = ChromaService.getInstance();
+    this.memoryService = MemoryService.getInstance();
+  }
+
+  // Generate search query node
+  private generateSearchQuery = async (state: AgentWorkflowState) => {
+    const searchQueryChain = PromptTemplate.fromTemplate(
+      `Given the user query: "{input}", generate a focused search query 
+       to find relevant past conversations or contextual information.`
+    )
+    .pipe(this.model)
+    .pipe(new StringOutputParser());
+
+    const searchQuery = await searchQueryChain.invoke({ 
+      input: state.input 
+    });
+
+    return { ...state, searchQuery };
+  }
+
+  // Search memories node
+  private searchMemories = async (state: AgentWorkflowState) => {
+    if (!state.searchQuery) {
+      return state;
+    }
+
+    const chromaFacts = await this.chromaService.findSimilarInputs(
+      state.userId.toString(), 
+      state.searchQuery
+    );
+    const mem0Facts = await this.memoryService.searchMemory(
+      state.userId, 
+      state.searchQuery
+    );
+    
+    const memories = [...chromaFacts, ...mem0Facts];
+    return { ...state, memories };
+  }
+
+  // Decide if needs facts node
+  private createNeedsFactsNode() {
+    return RunnableLambda.from(async (state: AgentWorkflowState) => {
+      const needsFactsChain = PromptTemplate.fromTemplate(
+        `Determine if the query "{input}" requires additional context or facts.
+        If its a statement, respond with direct_response.
+        If its a question that is related to past experiences, respond with needs_facts.
+        Mostly for questions that are related to past experiences, respond with needs_facts.
+        Respond with "needs_facts" or "direct_response"`
+      )
+      .pipe(this.model)
+      .pipe(new StringOutputParser());
+
+      const decision = await needsFactsChain.invoke({ 
+        input: state.input 
       });
-      this.chromaService = ChromaService.getInstance();
-      this.memoryService = MemoryService.getInstance();
-      console.log("✅ AgentService initialized successfully");
+
+      return decision.trim().toLowerCase() === "needs_facts" 
+        ? "needs_facts" 
+        : "direct_response";
+    });
+  }
+
+  // Generate final response node
+  private generateFinalResponse = async (state: AgentWorkflowState) => {
+    // Get recent conversation from memory
+    const recentMessages = await this.memoryService.getRecentConversation(
+      state.userId, 
+      5  // Get last 5 messages
+    );
+
+    const responseChain = PromptTemplate.fromTemplate(
+      `Current conversation:
+       ${recentMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
+
+       User Query: {input}
+       ${state.memories && state.memories.length > 0 
+         ? 'Additional Context:\n' + state.memories.map((fact, i) => `${i + 1}. ${fact}`).join('\n') 
+         : ''}
+       
+       Provide a concise response that maintains conversation continuity and incorporates both the conversation history and any relevant context.
+       Make sure you use the context and only answer to the user question don't answer to the conversation history or any other context.
+       Do not mention answer that has nothing to do with the user question.
+       If the user refers to previous messages, make sure to acknowledge and connect to that context.`
+    )
+    .pipe(this.model)
+    .pipe(new StringOutputParser());
+
+    const output = await responseChain.invoke({
+      input: state.input,
+      ...(state.memories ? { memories: state.memories.join('\n') } : {})
+    });
+
+    return { 
+      ...state, 
+      output,
+      recentConversation: [...recentMessages, { role: 'user', content: state.input }]
+    };
+  }
+
+  // Create the agent workflow
+  createAgentWorkflow() {
+    const workflow = new StateGraph<AgentWorkflowState>({
+      channels: {
+        input: null,
+        userId: null,
+        output: null,
+        memories: null,
+        searchQuery: null
+      }
+    })
+    .addNode('start', (state) => state)
+    .addNode('generate_search_query', this.generateSearchQuery)
+    .addNode('search_memories', this.searchMemories)
+    .addNode('generate_response', this.generateFinalResponse)
+    .addEdge(START, 'start')
+    .addConditionalEdges(
+      'start',
+      this.createNeedsFactsNode(),
+      {
+        needs_facts: 'generate_search_query',
+        direct_response: 'generate_response'
+      }
+    )
+    .addEdge('generate_search_query', 'search_memories')
+    .addEdge('search_memories', 'generate_response')
+    .addEdge('generate_response', END);
+
+    return workflow.compile();
+  }
+
+  // Main processing method
+  async process(userId: number, userInput: string): Promise<string> {
+    try {
+      await this.memoryService.initializeUser(userId);
+      const workflow = this.createAgentWorkflow();
+      const result = await workflow.invoke({
+        input: userInput,
+        userId: userId
+      });
+
+      await this.storeConversation(userId, userInput, result.output);
+      return result.output || "I couldn't generate a response.";
     } catch (error) {
-      console.error("❌ Failed to initialize AgentService:", error);
       throw error;
     }
   }
 
-  static getInstance(): AgentService {
-    if (!AgentService.instance) {
-      AgentService.instance = new AgentService();
-    }
-    return AgentService.instance;
-  }
+  // Helper method to determine if conversation should be stored
+  private async shouldStoreConversation(
+    input: string,
+    response: string
+  ): Promise<boolean> {
+    const analysisChain = PromptTemplate.fromTemplate(
+      `Analyze if this conversation contains new facts or important information worth storing:
+       User: {input}
+       Assistant: {response}
+       
+       Respond with only "store" or "skip". Choose "store" if:
+       1. Contains new personal information
+       2. Includes factual statements
+       3. References past experiences
+       4. Contains preferences or opinions
+       Choose "skip" for general chit-chat or basic queries.
+       Skip if its a basic question or a question that can be answered by a search.
+       
+       If the response is a basic question or a question that can be answered by a search, choose "skip".
+       `
+    )
+    .pipe(this.model)
+    .pipe(new StringOutputParser());
 
-  private async shouldStoreInput(input: string): Promise<boolean> {
-    console.log("\n🤔 Evaluating if input should be stored...");
-    
-    const evaluationChain = RunnableSequence.from([
-      PromptTemplate.fromTemplate(
-        `Analyze the following input and determine if it contains new factual information worth storing.
-         Only respond with "YES" if the input contains:
-         - New facts about the user
-         - Important information that might be referenced later
-         - Statements (not questions)
-         - Personal details or preferences
-         
-         Respond with "NO" if the input is:
-         - A question
-         - Small talk
-         - Greetings
-         - Commands or requests
-         - Clarifications
-         
-         Input: "{input}"
-         Should this be stored (YES/NO)?`
-      ),
-      this.model,
-      new StringOutputParser(),
-    ]);
-
-    const result = await evaluationChain.invoke({
-      input: input,
+    const decision = await analysisChain.invoke({
+      input,
+      response
     });
 
-    const shouldStore = result.trim().toUpperCase() === "YES";
-    console.log(`📝 Storage Decision: ${shouldStore ? "Will store" : "Will not store"}`);
-    return shouldStore;
+    return decision.trim().toLowerCase() === "store";
   }
 
-  async process(userId: string, userInput: string): Promise<string> {
-    console.log("\n🔄 === Starting Agent Processing ===");
-    console.log("📝 User Input:", userInput);
-    console.log("👤 User ID:", userId);
-
-    try {
-      // Ensure user is initialized in MemoryService
-      await this.memoryService.initializeUser(Number(userId));
-
-      // 1. Evaluate if input should be stored
-      const shouldStore = await this.shouldStoreInput(userInput);
-      if (shouldStore) {
-        console.log("\n💾 Storing valuable information in databases...");
-        await this.chromaService.storeUserInput(userId, userInput);
-        // Store in Mem0 as a message
-        await this.memoryService.storeConversation(Number(userId), [{
-          role: 'user',
-          content: userInput
-        }]);
-      }
-
-      // 2. Determine if we need to search for facts
-      console.log("\n🔍 Step 1: Determining if facts are needed...");
-      const needsFactsChain = RunnableSequence.from([
-        PromptTemplate.fromTemplate(
-          `Given the user query: "{input}", determine if we need to search for additional facts from the database. 
-           Respond with either "YES" or "NO".
-           Respond YES if the query seems to be a question or a request for information.`
-        ),
-        this.model,
-        new StringOutputParser(),
+  // Modified store conversation method
+  private async storeConversation(
+    userId: number, 
+    userInput: string, 
+    agentResponse: string
+  ) {
+    if (await this.shouldStoreConversation(userInput, agentResponse)) {
+      await Promise.all([
+        this.chromaService.storeUserInput(userId.toString(), userInput),
+        this.memoryService.storeConversation(userId, [
+          { role: 'user', content: userInput },
+          { role: 'assistant', content: agentResponse }
+        ])
       ]);
-
-      const needsFacts = await needsFactsChain.invoke({
-        input: userInput,
-      });
-      console.log("📊 Needs Facts:", needsFacts.trim());
-
-      let relevantFacts: string[] = [];
-      if (needsFacts.trim().toUpperCase() === "YES") {
-        // 3. Generate search query
-        console.log("\n🔎 Step 2: Generating search query...");
-        const searchQueryChain = RunnableSequence.from([
-          PromptTemplate.fromTemplate(
-            `Given the user query: "{input}", generate a search query that would help find relevant past conversations or facts.
-             Make the search query specific and focused on key information needed.`
-          ),
-          this.model,
-          new StringOutputParser(),
-        ]);
-
-        const searchQuery = await searchQueryChain.invoke({
-          input: userInput,
-        });
-        console.log("🔎 Generated Search Query:", searchQuery);
-
-        // 4. Search ChromaDB for relevant facts
-        console.log("\n📚 Step 3: Searching for relevant facts...");
-        relevantFacts = await this.chromaService.findSimilarInputs(userId, searchQuery);
-        console.log("ChromaDB Facts:", relevantFacts.length > 0 ? relevantFacts : "No facts found");
-        //search mem0
-        const mem0Facts = await this.memoryService.searchMemory(Number(userId), searchQuery);
-        console.log("Mem0 Facts:", mem0Facts.length > 0 ? mem0Facts : "No facts found");
-        relevantFacts = [...relevantFacts, ...mem0Facts];
-        console.log("📑 Found Facts:", relevantFacts.length > 0 ? relevantFacts : "No facts found");
-      }
-
-      // 5. Generate response using found facts
-      console.log("\n💭 Step 4: Generating final response...");
-      const responseChain = RunnableSequence.from([
-        PromptTemplate.fromTemplate(
-          `User Query: {input}
-           ${relevantFacts.length > 0 ? 'Relevant Past Context:' : ''}
-           ${relevantFacts.map((fact, i) => `${i + 1}. ${fact}`).join('\n')}
-           
-           Please provide a response to the user query, incorporating any relevant past context naturally.
-           If there's no past context, simply respond to the query directly.`
-        ),
-        this.model,
-        new StringOutputParser(),
-      ]);
-
-      const response = await responseChain.invoke({
-        input: userInput,
-      });
-
-      console.log("✅ === Agent Processing Complete ===");
-      return response;
-
-    } catch (error) {
-      this.logError("agent processing", error);
-      throw new Error("Agent processing failed: " + (error instanceof Error ? error.message : "Unknown error"));
     }
-  }
-
-  private logError(stage: string, error: unknown) {
-    console.error(`\n❌ Error in ${stage}:`);
-    console.error("Details:", error);
-    console.error("Stack:", error instanceof Error ? error.stack : "No stack trace");
-    console.error("======================\n");
   }
 }

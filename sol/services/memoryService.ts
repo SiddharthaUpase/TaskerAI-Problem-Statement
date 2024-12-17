@@ -51,4 +51,26 @@ export class MemoryService {
     }
   }
 
+  async getRecentConversation(userId: number, limit: number = 5): Promise<{ role: string; content: string; }[]> {
+    try {
+      const memory = this.userMemories.get(userId);
+      if (!memory) return [];
+      
+      const results = await memory.search("", { 
+        user_id: userId.toString(),
+        limit: limit * 2 // Multiply by 2 since each exchange has 2 messages
+      });
+
+      return results
+        .map(result => ({
+          role: result.metadata?.role || "unknown",
+          content: result.memory || ""
+        }))
+        .filter(msg => msg.content)
+        .slice(-limit);
+    } catch (error) {
+      return [];
+    }
+  }
+
 } 
